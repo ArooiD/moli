@@ -2104,4 +2104,35 @@ async def run_touch_input_workflows(state: SmokeState) -> None:
             raise SmokeError(
                 f"coordinate input did not dispatch {event_type}: {coordinate_events!r}"
             )
+
+    # Legacy OWA-style controls commonly put onclick on a wrapper while its
+    # painted children receive the pointer press/release. UI Events targets the
+    # click at their nearest common inclusive ancestor.
+    await page.evaluate(
+        """() => {
+          document.body.innerHTML = [
+            '<div id="legacy-login" onclick="window.__legacyClickTarget = event.currentTarget.id" ',
+            'style="position:absolute;left:0;top:0;width:120px;height:40px">',
+            '<span id="legacy-icon" style="display:inline-block;width:60px;height:40px"></span>',
+            '<span id="legacy-label" style="display:inline-block;width:60px;height:40px">sign in</span>',
+            '</div>'
+          ].join('');
+          window.__legacyClickTarget = '';
+        }"""
+    )
+    await cdp.send(
+        "Input.dispatchMouseEvent",
+        {"type": "mousePressed", "x": 20, "y": 20, "button": "left", "buttons": 1},
+    )
+    await cdp.send(
+        "Input.dispatchMouseEvent",
+        {"type": "mouseReleased", "x": 100, "y": 20, "button": "left", "buttons": 0},
+    )
+    legacy_click_target = await page.evaluate("() => window.__legacyClickTarget")
+    assert_equal(
+        legacy_click_target,
+        "legacy-login",
+        "mouse click uses nearest common inclusive ancestor for legacy onclick wrappers",
+    )
+
     state.record("coordinate_input_layout_hit_test_workflows")
