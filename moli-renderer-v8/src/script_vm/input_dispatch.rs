@@ -1070,7 +1070,10 @@ impl ScriptVm {
                     }
                     return Ok(outcome);
                 }
-                Some((MouseReleaseFollowUp::DispatchEvent(follow_up_event_name), follow_up_handle)) => {
+                Some((
+                    MouseReleaseFollowUp::DispatchEvent(follow_up_event_name),
+                    follow_up_handle,
+                )) => {
                     if event_name == "mouseup" {
                         suppress_compat_mouse_events = false;
                     }
