@@ -107,12 +107,20 @@ fn form_control_text(semantics: &Option<LayoutElementSemantics>) -> Option<Strin
             | LayoutInputControlKind::Image
             | LayoutInputControlKind::Radio
             | LayoutInputControlKind::Range => String::new(),
+            LayoutInputControlKind::Password => {
+                if data.value.is_empty() {
+                    data.placeholder.to_string()
+                } else {
+                    // Keep the real value in DOM/form state, but never expose
+                    // it through visual paint, screenshots, or screencasts.
+                    "•".repeat(data.value.chars().count())
+                }
+            }
             LayoutInputControlKind::Date
             | LayoutInputControlKind::DateTimeLocal
             | LayoutInputControlKind::Email
             | LayoutInputControlKind::Month
             | LayoutInputControlKind::Number
-            | LayoutInputControlKind::Password
             | LayoutInputControlKind::Search
             | LayoutInputControlKind::Telephone
             | LayoutInputControlKind::Text
