@@ -207,6 +207,75 @@ async fn coordinate_mouse_commands_hit_test_real_layout_and_dispatch_dom_events(
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn coordinate_mouse_click_uses_common_ancestor_for_legacy_composite_control() {
+    let mut ctx = TestContext::new();
+    with_loaded_document(
+        &mut ctx,
+        r#"<html><body style='margin:0'>
+                <div id='signin'
+                     style='position:absolute;left:0;top:0;width:120px;height:80px'
+                     role='button'
+                     onclick="window.__legacyClicks = String(Number(window.__legacyClicks || '0') + 1)">
+                  <span id='label'
+                        style='display:block;width:40px;height:80px'>sign in</span>
+                </div>
+                <script>
+                  window.__legacyClicks = '0';
+                  window.__legacyTarget = '';
+                  document.getElementById('signin').addEventListener('click', (event) => {
+                    window.__legacyTarget = event.target.id;
+                  });
+                </script>
+               </body></html>"#,
+    )
+    .await;
+
+    // Press on the child label but release on the clickable parent. Browsers
+    // dispatch click at the nearest common inclusive ancestor (the parent
+    // div), which is how legacy OWA-style composite sign-in controls remain
+    // clickable across child boundaries and small layout/repaint shifts.
+    for command in [
+        json!({
+            "id": 51,
+            "method": "Input.dispatchMouseEvent",
+            "params": {
+                "type": "mousePressed",
+                "x": 20,
+                "y": 20,
+                "button": "left",
+                "buttons": 1,
+                "clickCount": 1
+            }
+        }),
+        json!({
+            "id": 52,
+            "method": "Input.dispatchMouseEvent",
+            "params": {
+                "type": "mouseReleased",
+                "x": 80,
+                "y": 20,
+                "button": "left",
+                "buttons": 0,
+                "clickCount": 1
+            }
+        }),
+    ] {
+        let id = command["id"].as_u64().expect("command id");
+        ctx.process_async(command).await;
+        ctx.expect_result(id, json!({}), None);
+    }
+
+    assert_eq!(
+        evaluate_string(
+            &mut ctx,
+            "window.__legacyClicks + ':' + window.__legacyTarget"
+        )
+        .await,
+        "1:signin"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn coordinate_mouse_release_acknowledges_real_link_navigation() {
     tokio::task::LocalSet::new()
         .run_until(async {
