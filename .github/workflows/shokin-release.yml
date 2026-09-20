@@ -11,6 +11,10 @@ on:
       - ".github/workflows/shokin-release.yml"
   workflow_dispatch:
 
+concurrency:
+  group: shokin-downstream-release-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
