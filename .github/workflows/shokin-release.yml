@@ -6,6 +6,8 @@ on:
       - shokin-v1.1.9
     paths:
       - "moli-layout/src/form.rs"
+      - "moli-renderer-v8/src/script_vm/input_dispatch.rs"
+      - "moli-protocol/src/domains/input/tests.rs"
       - ".github/workflows/shokin-release.yml"
   workflow_dispatch:
 
@@ -18,7 +20,7 @@ env:
   GIT_CONFIG_COUNT: "1"
   GIT_CONFIG_KEY_0: safe.directory
   GIT_CONFIG_VALUE_0: ${{ github.workspace }}
-  RELEASE_TAG: v1.1.9-shokin.1
+  RELEASE_TAG: v1.1.9-shokin.2
 
 jobs:
   build-linux:
@@ -44,6 +46,13 @@ jobs:
         run: |
           set -euo pipefail
           grep -F '"•".repeat(data.value.chars().count())' moli-layout/src/form.rs
+
+      - name: Verify legacy composite click handling
+        shell: bash
+        run: >-
+          cargo test -p moli-protocol
+          coordinate_mouse_click_uses_common_ancestor_for_legacy_composite_control
+          --lib
 
       - name: Build and package Moli 1.1.9
         shell: bash
