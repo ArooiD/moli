@@ -687,25 +687,31 @@ impl ScriptVm {
                 Some(PendingMousePress {
                     handle: pressed_handle,
                     button: pressed_button,
-                }) if pressed_button == button => {
-                    let common_handle = {
-                        let context_host = self._context_host.borrow();
-                        nearest_common_inclusive_ancestor(
-                            context_host.dom_host(),
-                            pressed_handle,
-                            handle,
-                        )
-                    };
-                    common_handle.and_then(|target| {
-                        let follow_up = match button {
-                            0 => MouseReleaseFollowUp::ActivateViaClick,
-                            1 => MouseReleaseFollowUp::DispatchEvent("auxclick"),
-                            2 => MouseReleaseFollowUp::DispatchEvent("contextmenu"),
-                            _ => return None,
+                }) if pressed_button == button => match button {
+                    0 | 1 => {
+                        let common_handle = {
+                            let context_host = self._context_host.borrow();
+                            nearest_common_inclusive_ancestor(
+                                context_host.dom_host(),
+                                pressed_handle,
+                                handle,
+                            )
                         };
-                        Some((follow_up, target))
-                    })
-                }
+                        common_handle.map(|target| {
+                            let follow_up = if button == 0 {
+                                MouseReleaseFollowUp::ActivateViaClick
+                            } else {
+                                MouseReleaseFollowUp::DispatchEvent("auxclick")
+                            };
+                            (follow_up, target)
+                        })
+                    }
+                    // contextmenu follows the right-button user event target;
+                    // unlike click/auxclick it is not retargeted to the common
+                    // ancestor of the press/release pair.
+                    2 => Some((MouseReleaseFollowUp::DispatchEvent("contextmenu"), handle)),
+                    _ => None,
+                },
                 _ => None,
             }
         } else {
