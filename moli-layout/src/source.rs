@@ -259,6 +259,9 @@ pub struct LayoutFormControlData {
     pub checked: bool,
     pub disabled: bool,
     pub multiple: bool,
+    /// Text-control selection sampled from the focused input/textarea.
+    /// Equal endpoints represent the caret position.
+    pub selection: Option<LayoutTextSelection>,
 }
 
 impl Default for LayoutFormControlData {
@@ -273,6 +276,7 @@ impl Default for LayoutFormControlData {
             checked: false,
             disabled: false,
             multiple: false,
+            selection: None,
         }
     }
 }
