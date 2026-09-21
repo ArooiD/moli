@@ -1433,7 +1433,7 @@ fn document_named_access_value<'s>(
     }
 }
 
-fn document_named_property_getter<'s>(
+pub(in crate::native_bridge) fn document_named_property_getter<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     key: v8::Local<'s, v8::Name>,
     args: v8::PropertyCallbackArguments<'s>,
@@ -1446,7 +1446,7 @@ fn document_named_property_getter<'s>(
     v8::Intercepted::kYes
 }
 
-fn document_named_property_query<'s>(
+pub(in crate::native_bridge) fn document_named_property_query<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     key: v8::Local<'s, v8::Name>,
     args: v8::PropertyCallbackArguments<'s>,
@@ -1465,17 +1465,6 @@ pub(crate) fn install_document_template_bindings<'s>(
     interface_name: &str,
 ) {
     let prototype = template.prototype_template(scope);
-    if matches!(interface_name, "Document" | "HTMLDocument") {
-        template.instance_template(scope).set_named_property_handler(
-            v8::NamedPropertyHandlerConfiguration::new()
-                .getter(document_named_property_getter)
-                .query(document_named_property_query)
-                .flags(
-                    v8::PropertyHandlerFlags::NON_MASKING
-                        | v8::PropertyHandlerFlags::ONLY_INTERCEPT_STRINGS,
-                ),
-        );
-    }
     if interface_name == "Document" {
         DocumentMetadataPrototypeDeclaration::initialize_prototype_template(scope, prototype);
         DocumentStructurePrototypeDeclaration::initialize_prototype_template(scope, prototype);
