@@ -16,6 +16,9 @@ use super::node::{
     node_is_document, node_runtime_and_handle_from_object,
     node_runtime_and_handle_from_object_or_detached,
 };
+use super::named_access::{
+    build_document_named_items_collection, document_named_item_handles,
+};
 use super::{
     JsContextHost, callback_arg_namespace, callback_arg_string, collections,
     identity::{CollectionKind, LiveCollectionDescriptor, LiveCollectionQueryKind},
@@ -1391,12 +1394,88 @@ pub(in crate::native_bridge) fn set_document_associated_window<'s>(
     );
 }
 
+fn document_named_access_value<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    key: v8::Local<'s, v8::Name>,
+    holder: v8::Local<'s, v8::Object>,
+) -> Option<v8::Local<'s, v8::Value>> {
+    let key = v8::Local::<v8::String>::try_from(key).ok()?;
+    let key_name = key.to_rust_string_lossy(scope);
+    if key_name.is_empty() {
+        return None;
+    }
+
+    let (runtime_ptr, document_handle) =
+        node_runtime_and_handle_from_object(scope, holder).ok()?;
+    let runtime = unsafe { &*runtime_ptr };
+    if !node_is_document(runtime, document_handle)
+        || !is_html_document(runtime, document_handle)
+    {
+        return None;
+    }
+
+    let handles = document_named_item_handles(runtime.dom_host(), document_handle, &key_name);
+    let context = holder.get_creation_context(scope)?;
+    let scope = &mut v8::ContextScope::new(scope, context);
+    match handles.as_slice() {
+        [] => None,
+        [handle] => unsafe { &mut *runtime_ptr }
+            .native_bridge_mut()
+            .wrap_handle(scope, runtime_ptr, *handle)
+            .map(Into::into),
+        _ => build_document_named_items_collection(
+            scope,
+            runtime_ptr,
+            document_handle,
+            &key_name,
+        )
+        .map(Into::into),
+    }
+}
+
+fn document_named_property_getter<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    key: v8::Local<'s, v8::Name>,
+    args: v8::PropertyCallbackArguments<'s>,
+    mut rv: v8::ReturnValue<'_, v8::Value>,
+) -> v8::Intercepted {
+    let Some(value) = document_named_access_value(scope, key, args.holder()) else {
+        return v8::Intercepted::kNo;
+    };
+    rv.set(value);
+    v8::Intercepted::kYes
+}
+
+fn document_named_property_query<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    key: v8::Local<'s, v8::Name>,
+    args: v8::PropertyCallbackArguments<'s>,
+    mut rv: v8::ReturnValue<'_, v8::Integer>,
+) -> v8::Intercepted {
+    if document_named_access_value(scope, key, args.holder()).is_none() {
+        return v8::Intercepted::kNo;
+    }
+    rv.set_int32(v8::PropertyAttribute::DONT_ENUM.as_u32() as i32);
+    v8::Intercepted::kYes
+}
+
 pub(crate) fn install_document_template_bindings<'s>(
     scope: &mut v8::PinScope<'s, '_, ()>,
     template: v8::Local<'s, v8::FunctionTemplate>,
     interface_name: &str,
 ) {
     let prototype = template.prototype_template(scope);
+    if matches!(interface_name, "Document" | "HTMLDocument") {
+        template.instance_template(scope).set_named_property_handler(
+            v8::NamedPropertyHandlerConfiguration::new()
+                .getter(document_named_property_getter)
+                .query(document_named_property_query)
+                .flags(
+                    v8::PropertyHandlerFlags::NON_MASKING
+                        | v8::PropertyHandlerFlags::ONLY_INTERCEPT_STRINGS,
+                ),
+        );
+    }
     if interface_name == "Document" {
         DocumentMetadataPrototypeDeclaration::initialize_prototype_template(scope, prototype);
         DocumentStructurePrototypeDeclaration::initialize_prototype_template(scope, prototype);
