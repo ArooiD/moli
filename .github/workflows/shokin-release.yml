@@ -6,11 +6,14 @@ on:
       - shokin-v1.1.9
     paths:
       - "moli-layout/src/form.rs"
+      - "moli-layout/src/source.rs"
+      - "moli-renderer-v8/src/layout_renderer/source_view.rs"
       - "moli-renderer-v8/src/script_vm/input_dispatch.rs"
       - "moli-renderer-v8/src/native_bridge/document.rs"
       - "moli-renderer-v8/src/native_bridge/named_access.rs"
       - "moli-renderer-v8/src/native_bridge/identity.rs"
       - "moli-protocol/src/domains/input/tests.rs"
+      - "moli-protocol/src/domains/input/tests/keyboard_events.rs"
       - ".github/workflows/shokin-release.yml"
   workflow_dispatch:
 
@@ -27,7 +30,7 @@ env:
   GIT_CONFIG_COUNT: "1"
   GIT_CONFIG_KEY_0: safe.directory
   GIT_CONFIG_VALUE_0: ${{ github.workspace }}
-  RELEASE_TAG: v1.1.9-shokin.3
+  RELEASE_TAG: v1.1.9-shokin.4
 
 jobs:
   build-linux:
@@ -60,6 +63,7 @@ jobs:
           set -euo pipefail
           cargo test -p moli-protocol             coordinate_mouse_click_uses_common_ancestor_for_legacy_composite_control             --lib
           cargo test -p moli-protocol             coordinate_mouse_click_supports_owa_document_named_form_access             --lib
+          cargo test -p moli-protocol             cdp_tab_key_moves_focus_forward_and_backward             --lib
 
       - name: Build and package Moli 1.1.9
         shell: bash
@@ -109,7 +113,7 @@ jobs:
             gh release create "$RELEASE_TAG" dist/* \
               --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
-              --title "Moli 1.1.9 Shokin downstream 3" \
+              --title "Moli 1.1.9 Shokin downstream 4" \
               --prerelease \
-              --notes "Downstream build of Moli v1.1.9 for BrowserAuth with password-field visual masking, legacy composite click handling, and Document named-form access required by legacy OWA."
+              --notes "Downstream build of Moli v1.1.9 for BrowserAuth with password masking, legacy OWA click and named-form compatibility, Tab/Shift+Tab focus traversal, and focused text-control caret painting."
           fi
