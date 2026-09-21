@@ -178,6 +178,62 @@ async fn cdp_combined_keydown_refetches_focus_before_keypress() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn cdp_tab_key_moves_focus_forward_and_backward() {
+    let mut ctx = TestContext::new();
+    with_loaded_document(
+        &mut ctx,
+        r#"<html><body>
+            <input id='username'>
+            <input id='password' type='password'>
+            <button id='signin'>sign in</button>
+            <script>document.getElementById('username').focus();</script>
+        </body></html>"#,
+    )
+    .await;
+
+    async fn tab(ctx: &mut TestContext, modifiers: i64) {
+        for (id, event_type) in [(911, "keyDown"), (912, "keyUp")] {
+            ctx.process_async(json!({
+                "id": id,
+                "method": "Input.dispatchKeyEvent",
+                "params": {
+                    "type": event_type,
+                    "key": "Tab",
+                    "code": "Tab",
+                    "text": "",
+                    "modifiers": modifiers
+                }
+            }))
+            .await;
+            ctx.expect_result(id, json!({}), None);
+        }
+    }
+
+    assert_eq!(
+        evaluate_string(&mut ctx, "document.activeElement.id").await,
+        "username"
+    );
+
+    tab(&mut ctx, 0).await;
+    assert_eq!(
+        evaluate_string(&mut ctx, "document.activeElement.id").await,
+        "password"
+    );
+
+    tab(&mut ctx, 0).await;
+    assert_eq!(
+        evaluate_string(&mut ctx, "document.activeElement.id").await,
+        "signin"
+    );
+
+    tab(&mut ctx, 8).await;
+    assert_eq!(
+        evaluate_string(&mut ctx, "document.activeElement.id").await,
+        "password"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn cdp_insert_text_does_not_manufacture_keyboard_events() {
     for control in CONTROLS {
         let mut ctx = keyboard_fixture(control).await;
