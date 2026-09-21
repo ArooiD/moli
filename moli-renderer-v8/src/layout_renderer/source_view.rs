@@ -93,7 +93,15 @@ impl LayoutSource for NativeLayoutSourceView<'_> {
         self.host()
             .node(node)
             .and_then(Node::as_element)
-            .map(|element| layout_element_semantics_for_source(self.host(), node, element))
+            .map(|element| {
+                let selection = focused_text_control_selection(self.runtime, node, element);
+                layout_element_semantics_for_source_with_selection(
+                    self.host(),
+                    node,
+                    element,
+                    selection,
+                )
+            })
     }
 
     fn text(&self, node: Self::NodeId) -> Option<&str> {
@@ -403,6 +411,22 @@ fn native_node_is_slotable(host: &DomHost, node: DomHandle) -> bool {
         .is_some_and(|node| node.is_element() || node.is_text())
 }
 
+fn focused_text_control_selection(
+    runtime: &JsContextHost,
+    node: DomHandle,
+    element: &crate::dom::native::Element,
+) -> Option<LayoutTextSelection> {
+    if runtime.active_element_handle() != Some(node)
+        || !(element.is_html_input() || element.is_html_textarea())
+    {
+        return None;
+    }
+    let value_len = element.input_value().encode_utf16().count();
+    let start = (element.selection_start() as usize).min(value_len);
+    let end = (element.selection_end() as usize).min(value_len);
+    Some(LayoutTextSelection::new(start, end))
+}
+
 fn layout_element_semantics(element: &crate::dom::native::Element) -> LayoutElementSemantics {
     let namespace = LayoutNamespace::from_uri(element.namespace());
     let local_name = element.local_name();
@@ -425,7 +449,7 @@ fn layout_element_semantics(element: &crate::dom::native::Element) -> LayoutElem
     } else {
         (LayoutElementCategory::Generic, None)
     };
-    let metadata = layout_element_metadata(element, category, None, 0);
+    let metadata = layout_element_metadata(element, category, None, 0, None);
     LayoutElementSemantics::new(namespace, local_name, category, replaced).with_metadata(metadata)
 }
 
@@ -433,6 +457,15 @@ fn layout_element_semantics_for_source(
     host: &DomHost,
     node: DomHandle,
     element: &crate::dom::native::Element,
+) -> LayoutElementSemantics {
+    layout_element_semantics_for_source_with_selection(host, node, element, None)
+}
+
+fn layout_element_semantics_for_source_with_selection(
+    host: &DomHost,
+    node: DomHandle,
+    element: &crate::dom::native::Element,
+    selection: Option<LayoutTextSelection>,
 ) -> LayoutElementSemantics {
     let mut semantics = layout_element_semantics(element);
     let (selected_text, maximum_option_characters) = if element.is_html_select() {
@@ -465,6 +498,7 @@ fn layout_element_semantics_for_source(
         semantics.category,
         selected_text,
         maximum_option_characters,
+        selection,
     );
     semantics
 }
@@ -474,6 +508,7 @@ fn layout_element_metadata(
     category: LayoutElementCategory,
     selected_text: Option<String>,
     maximum_option_characters: u16,
+    selection: Option<LayoutTextSelection>,
 ) -> LayoutElementMetadata {
     let mut metadata = LayoutElementMetadata::default();
     match category {
@@ -527,6 +562,7 @@ fn layout_element_metadata(
                 checked: element.checked(),
                 disabled: element.attribute("disabled").is_some(),
                 multiple: element.attribute("multiple").is_some(),
+                selection,
             });
         }
         LayoutElementCategory::Generic | LayoutElementCategory::LineBreak => {}
