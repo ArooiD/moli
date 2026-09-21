@@ -7,7 +7,7 @@ use taffy::Size;
 use crate::{
     LayoutAnonymousReason, LayoutBoxId, LayoutBoxKind, LayoutDisplay, LayoutElementCategory,
     LayoutElementSemantics, LayoutError, LayoutFormControlKind, LayoutInputControlKind,
-    LayoutWorld, ResolvedLayoutStyle, replaced::ReplacedContext,
+    LayoutTextSelection, LayoutWorld, ResolvedLayoutStyle, replaced::ReplacedContext,
 };
 
 pub(crate) fn prepare_form_controls<N>(world: &mut LayoutWorld<N>) -> Result<(), LayoutError>
@@ -17,11 +17,12 @@ where
     let controls = (0..world.boxes.len())
         .map(LayoutBoxId::from_index)
         .filter_map(|id| {
-            form_control_text(&world.boxes[id.index()].element_semantics).map(|text| (id, text))
+            form_control_text(&world.boxes[id.index()].element_semantics)
+                .map(|(text, selection)| (id, text, selection))
         })
-        .filter(|(_, text)| !text.is_empty())
+        .filter(|(_, text, selection)| !text.is_empty() || selection.is_some())
         .collect::<Vec<_>>();
-    for (control, text) in controls {
+    for (control, text, selection) in controls {
         let Some(owner) = world.boxes[control.index()].source else {
             continue;
         };
@@ -45,7 +46,7 @@ where
         );
         wrapper.inline_formatting_context = true;
         let wrapper_id = world.allocate(wrapper);
-        let text_id = world.allocate(LayoutWorld::new_box(
+        let mut text_box = LayoutWorld::new_box(
             None,
             Some(owner),
             None,
@@ -56,14 +57,18 @@ where
             LayoutBoxKind::Text,
             text_style,
             Some(Arc::from(text)),
-        ));
+        );
+        text_box.text_selection = selection;
+        let text_id = world.allocate(text_box);
         world.append_synthesized_child(wrapper_id, text_id)?;
         world.append_synthesized_child(control, wrapper_id)?;
     }
     Ok(())
 }
 
-fn form_control_text(semantics: &Option<LayoutElementSemantics>) -> Option<String> {
+fn form_control_text(
+    semantics: &Option<LayoutElementSemantics>,
+) -> Option<(String, Option<LayoutTextSelection>)> {
     let semantics = semantics.as_ref()?;
     let LayoutElementCategory::FormControl(kind) = semantics.category else {
         return None;
@@ -150,7 +155,44 @@ fn form_control_text(semantics: &Option<LayoutElementSemantics>) -> Option<Strin
         | LayoutFormControlKind::Progress
         | LayoutFormControlKind::Meter => String::new(),
     };
-    Some(text)
+    let selection = match kind {
+        LayoutFormControlKind::Input(LayoutInputControlKind::Password) => data.selection.map(|selection| {
+            LayoutTextSelection::new(
+                password_display_offset(&data.value, selection.start),
+                password_display_offset(&data.value, selection.end),
+            )
+        }),
+        LayoutFormControlKind::Input(
+            LayoutInputControlKind::Date
+            | LayoutInputControlKind::DateTimeLocal
+            | LayoutInputControlKind::Email
+            | LayoutInputControlKind::Month
+            | LayoutInputControlKind::Number
+            | LayoutInputControlKind::Search
+            | LayoutInputControlKind::Telephone
+            | LayoutInputControlKind::Text
+            | LayoutInputControlKind::Time
+            | LayoutInputControlKind::Url
+            | LayoutInputControlKind::Week,
+        )
+        | LayoutFormControlKind::TextArea => data.selection,
+        _ => None,
+    };
+    Some((text, selection))
+}
+
+fn password_display_offset(value: &str, utf16_offset: usize) -> usize {
+    let mut units = 0usize;
+    let mut chars = 0usize;
+    for ch in value.chars() {
+        let next = units.saturating_add(ch.len_utf16());
+        if next > utf16_offset {
+            break;
+        }
+        units = next;
+        chars = chars.saturating_add(1);
+    }
+    chars
 }
 
 pub(crate) fn form_control_context(
