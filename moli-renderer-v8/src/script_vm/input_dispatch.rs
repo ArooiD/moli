@@ -28,7 +28,8 @@ use crate::native_bridge::element::{
     observable_input_hit_test, observable_input_surface_hit_test,
     perform_auxiliary_link_default_action, perform_drop_default_action,
     perform_mouse_focus_default_action, perform_scrollbar_scroll_default_action,
-    perform_wheel_scroll_default_action, replace_contenteditable_selection,
+    perform_tab_focus_default_action_for_dispatched_event, perform_wheel_scroll_default_action,
+    replace_contenteditable_selection,
     replace_text_control_selection, select_contenteditable_contents,
     text_control_set_selection_range_internal,
     text_control_set_selection_range_with_direction_internal, text_control_value, update_focus,
@@ -1886,6 +1887,15 @@ impl ScriptVm {
             let dispatched = dispatch_public_event(scope, runtime_ptr, handle, event);
             if !dispatched.allows_default() {
                 return Ok(input_dispatch_outcome(false));
+            }
+
+            if event_name == "keydown" && key_lower == "tab" {
+                perform_tab_focus_default_action_for_dispatched_event(
+                    scope,
+                    runtime_ptr,
+                    event,
+                );
+                return Ok(input_dispatch_outcome(true));
             }
 
             // Combined keydown/text input includes a cancelable keypress before
