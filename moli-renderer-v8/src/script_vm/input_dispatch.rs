@@ -82,6 +82,30 @@ fn can_suppress_compat_mouse_event(event_name: &str) -> bool {
 const MOUSE_POINTER_ID: i32 = 1;
 const TOUCH_POINTER_ID: i32 = 2;
 
+// UI Events targets a synthesized click at the nearest common inclusive
+// ancestor of the mousedown and mouseup targets. Real-world legacy pages often
+// put onclick on a wrapper while the pointer lands on different painted
+// descendants (for example an <img> on press and a <span> on release).
+fn nearest_common_inclusive_ancestor(
+    runtime: &crate::native_bridge::JsContextHost,
+    left: DomHandle,
+    right: DomHandle,
+) -> Option<DomHandle> {
+    let dom = runtime.dom_host();
+    let mut left_cursor = Some(left);
+    while let Some(left_handle) = left_cursor {
+        let mut right_cursor = Some(right);
+        while let Some(right_handle) = right_cursor {
+            if left_handle == right_handle {
+                return Some(left_handle);
+            }
+            right_cursor = dom.node(right_handle).and_then(|node| node.parent_node());
+        }
+        left_cursor = dom.node(left_handle).and_then(|node| node.parent_node());
+    }
+    None
+}
+
 struct PreparedMouseInputDispatch {
     button: i32,
     buttons: i32,
@@ -661,12 +685,21 @@ impl ScriptVm {
                 Some(PendingMousePress {
                     handle: pressed_handle,
                     button: pressed_button,
-                }) if pressed_handle == handle && pressed_button == button => match button {
-                    0 => Some(MouseReleaseFollowUp::ActivateViaClick),
-                    1 => Some(MouseReleaseFollowUp::DispatchEvent("auxclick")),
-                    2 => Some(MouseReleaseFollowUp::DispatchEvent("contextmenu")),
-                    _ => None,
-                },
+                }) if pressed_button == button => {
+                    let activation_handle = {
+                        let runtime = self._context_host.borrow();
+                        nearest_common_inclusive_ancestor(&runtime, pressed_handle, handle)
+                    };
+                    activation_handle.and_then(|activation_handle| {
+                        let action = match button {
+                            0 => MouseReleaseFollowUp::ActivateViaClick,
+                            1 => MouseReleaseFollowUp::DispatchEvent("auxclick"),
+                            2 => MouseReleaseFollowUp::DispatchEvent("contextmenu"),
+                            _ => return None,
+                        };
+                        Some((action, activation_handle))
+                    })
+                }
                 _ => None,
             }
         } else {
@@ -1000,14 +1033,14 @@ impl ScriptVm {
                 }
             }
             match follow_up {
-                Some(MouseReleaseFollowUp::ActivateViaClick) => {
+                Some((MouseReleaseFollowUp::ActivateViaClick, activation_handle)) => {
                     if event_name == "mouseup" {
                         suppress_compat_mouse_events = false;
                     }
                     let outcome = activate_handle_via_click_with_detail_and_modifiers(
                         scope,
                         runtime_ptr,
-                        handle,
+                        activation_handle,
                         client_x,
                         client_y,
                         button,
@@ -1027,11 +1060,14 @@ impl ScriptVm {
                             modifiers,
                         )
                     {
-                        let _ = dispatch_public_event(scope, runtime_ptr, handle, event);
+                        let _ = dispatch_public_event(scope, runtime_ptr, activation_handle, event);
                     }
                     return Ok(outcome);
                 }
-                Some(MouseReleaseFollowUp::DispatchEvent(follow_up_event_name)) => {
+                Some((
+                    MouseReleaseFollowUp::DispatchEvent(follow_up_event_name),
+                    activation_handle,
+                )) => {
                     if event_name == "mouseup" {
                         suppress_compat_mouse_events = false;
                     }
@@ -1049,12 +1085,13 @@ impl ScriptVm {
                         buttons,
                         modifiers,
                     ) {
-                        let dispatched = dispatch_public_event(scope, runtime_ptr, handle, event);
+                        let dispatched =
+                            dispatch_public_event(scope, runtime_ptr, activation_handle, event);
                         if follow_up_event_name == "auxclick" && dispatched.allows_default() {
                             pending_download = perform_auxiliary_link_default_action(
                                 scope,
                                 runtime_ptr,
-                                handle,
+                                activation_handle,
                                 button,
                                 modifiers,
                                 &pending_child_navigations_before_event,
