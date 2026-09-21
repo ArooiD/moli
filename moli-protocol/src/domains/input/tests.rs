@@ -276,6 +276,84 @@ async fn coordinate_mouse_click_uses_common_ancestor_for_legacy_composite_contro
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn coordinate_mouse_click_supports_owa_document_named_form_access() {
+    let mut ctx = TestContext::new();
+    with_loaded_document(
+        &mut ctx,
+        r#"<html><body style='margin:0'>
+                <form name='logonForm' action='/owa/auth.owa' method='POST'>
+                  <input id='username' name='username' value='user@example.test'>
+                  <input id='password' name='password' type='password' value='secret'>
+                </form>
+                <div id='signin'
+                     style='position:absolute;left:0;top:100px;width:120px;height:80px'
+                     role='button'
+                     onclick='removeHost()'>
+                  <span style='display:block;width:120px;height:80px'>sign in</span>
+                </div>
+                <script>
+                  window.__owaResult = 'not-called';
+                  function clkLgn() {
+                    window.__owaResult = [
+                      document.logonForm === document.forms.namedItem('logonForm'),
+                      document.logonForm.tagName,
+                      typeof document.logonForm.submit
+                    ].join(':');
+                  }
+                  function removeHost() {
+                    var s = document.getElementById('username').value;
+                    var n = s.indexOf('@');
+                    if (n > 0) s = s.substring(0, n);
+                    document.getElementById('username').value = s;
+                    clkLgn();
+                  }
+                </script>
+               </body></html>"#,
+    )
+    .await;
+
+    for command in [
+        json!({
+            "id": 61,
+            "method": "Input.dispatchMouseEvent",
+            "params": {
+                "type": "mousePressed",
+                "x": 20,
+                "y": 120,
+                "button": "left",
+                "buttons": 1,
+                "clickCount": 1
+            }
+        }),
+        json!({
+            "id": 62,
+            "method": "Input.dispatchMouseEvent",
+            "params": {
+                "type": "mouseReleased",
+                "x": 20,
+                "y": 120,
+                "button": "left",
+                "buttons": 0,
+                "clickCount": 1
+            }
+        }),
+    ] {
+        let id = command["id"].as_u64().expect("command id");
+        ctx.process_async(command).await;
+        ctx.expect_result(id, json!({}), None);
+    }
+
+    assert_eq!(
+        evaluate_string(&mut ctx, "window.__owaResult").await,
+        "true:FORM:function"
+    );
+    assert_eq!(
+        evaluate_string(&mut ctx, "document.getElementById('username').value").await,
+        "user"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn coordinate_mouse_release_acknowledges_real_link_navigation() {
     tokio::task::LocalSet::new()
         .run_until(async {
